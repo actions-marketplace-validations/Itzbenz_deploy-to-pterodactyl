@@ -32,9 +32,9 @@ jobs:
           # The API endpoint of the Pterodactyl server e.g. "https://pterodactyl.file.properties/
           panel-url: https://pterodactyl.file.properties/
           # The ID of the Pterodactyl server
-          server-id: randomidhere
+          server-id: ${{ secrets.API_KEY }}
           # The API key of the Pterodactyl server
-          api-key: apikeyfromusersettingsidk
+          api-key: ${{ secrets.SERVER_ID }}
           # Whether to restart the server after deploying the plugin
           restart: true
           # Force kill the server if it is running for faster restart
