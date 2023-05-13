@@ -6140,7 +6140,7 @@ exports["default"] = _default;
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 const Axios = __nccwpck_require__(8757);
-
+const {spawn} = __nccwpck_require__(2081);
 const axios = Axios.create({
 
     headers: {
@@ -6151,6 +6151,30 @@ const axios = Axios.create({
 function setAxios(baseURL, apiToken) {
     axios.defaults.baseURL = baseURL;
     axios.defaults.headers.common['Authorization'] = `Bearer ${apiToken}`;
+}
+
+//wrapper
+async function exec(command, args, options) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, options);
+
+        child.stdout.on('data', (data) => {
+            process.stdout.write(data);
+        });
+        child.stderr.on('data', (data) => {
+            process.stderr.write(data);
+        });
+        child.on('close', (code) => {
+            if (code !== 0) {
+                reject(new Error(`Command ${command} ${args.join(' ')} exited with code ${code}`));
+            }
+            resolve();
+        });
+    });
+}
+
+async function zip(srcDir, targetFile){
+    await exec('zip', ['-r', targetFile, '.'], {cwd: srcDir});
 }
 
 async function setPowerState(serverId, signal) {
@@ -6198,6 +6222,16 @@ async function restartServer(serverId, force=false) {
     }
 }
 
+
+async function decompress(serverId, root, file) {
+    return (await axios.post(`/api/client/servers/${serverId}/files/decompress`, {
+        root: root,
+        file: file,
+    })).data;
+}
+
+
+
 module.exports = {
     axios,
     setAxios,
@@ -6206,6 +6240,9 @@ module.exports = {
     getResource,
     restartServer,
     waitUntilPowerState,
+    exec,
+    zip,
+    decompress
 }
 
 
@@ -6216,6 +6253,14 @@ module.exports = {
 
 "use strict";
 module.exports = require("assert");
+
+/***/ }),
+
+/***/ 2081:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("child_process");
 
 /***/ }),
 
@@ -10626,63 +10671,60 @@ var __webpack_exports__ = {};
 // This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
 (() => {
 const core = __nccwpck_require__(2186);
-const Axios = __nccwpck_require__(8757);
 const fs = __nccwpck_require__(7147);
 const shared = __nccwpck_require__(9297);
+
 // most @actions toolkit packages have async methods
 async function run() {
     try {
-        const artifactPath = core.getInput('artifact', {required: true});
-        const artifactName = artifactPath.split('/').pop();
-        const endpoint = core.getInput('endpoint', {required: true, trimWhitespace: true});
-        const apiToken = core.getInput('token', {required: true, trimWhitespace: true});
-        const serverId = core.getInput('server', {required: true, trimWhitespace: true});
+        const sourcePath = core.getInput('source', {required: true, trimWhitespace: true});
+        const targetPath = core.getInput('target', {required: true, trimWhitespace: true});
+        const panelUrl = core.getInput('panel-url', {required: true, trimWhitespace: true});
+        const serverId = core.getInput('server-id', {required: true, trimWhitespace: true});
+        const apiToken = core.getInput('api-key', {required: true, trimWhitespace: true});
         const doRestart = core.getInput('restart', {required: false, trimWhitespace: true}) === 'true';
-        const doForceKill = core.getInput('force', {required: false, trimWhitespace: true}) === 'true';
-        const targetPath = core.getInput('target-path', {
-            required: false,
-            trimWhitespace: true
-        }) || `config/mods/${artifactName}`;
+        const doForceKill = core.getInput('force-restart', {required: false, trimWhitespace: true}) === 'true';
 
-        core.info(`Artifact: ${artifactPath}`);
-        const buffer = fs.readFileSync(artifactPath);
-
-        const axios=shared.axios;
-        shared.setAxios(endpoint, apiToken);
-        if (doRestart) {
-            //alert the horde (optional)
-            core.info("Alerting the horde");
-            try {
-                await axios.post(`/api/client/servers/${serverId}/command`, {
-                    command: "say Server is restarting in 10 seconds (maybe)",
-                });
-            } catch (e) { /* empty */
-            }
+        //check if exists
+        if (!fs.existsSync(sourcePath)) {
+            throw new Error(`Source path ${sourcePath} does not exist`);
         }
-        core.info(`Uploading ${artifactName} to ${targetPath}`);
-        //upload file
-        /**
-         * curl "https://pterodactyl.file.properties/api/client/servers/1a7ce997/files/write?file=%2Feula.txt" \
-         *   -H 'Accept: application/json' \
-         *   -H 'Authorization: Bearer apikey' \
-         *   -X POST \
-         *   -b 'pterodactyl_session'='eyJpdiI6InhIVXp5ZE43WlMxUU1NQ1pyNWRFa1E9PSIsInZhbHVlIjoiQTNpcE9JV3FlcmZ6Ym9vS0dBTmxXMGtST2xyTFJvVEM5NWVWbVFJSnV6S1dwcTVGWHBhZzdjMHpkN0RNdDVkQiIsIm1hYyI6IjAxYTI5NDY1OWMzNDJlZWU2OTc3ZDYxYzIyMzlhZTFiYWY1ZjgwMjAwZjY3MDU4ZDYwMzhjOTRmYjMzNDliN2YifQ%3D%3D' \
-         *   -d '#By changing the setting below to TRUE you are indicating your agreement to our EULA (https://account.mojang.com/documents/minecraft_eula).
-         * #You also agree that tacos are tasty, and the best food in the world.
-         * #Wed Dec 25 05:20:41 UTC 2019
-         * eula=true
-         * '
-         * @type {axios.AxiosResponse<any>}
-         */
+        const isDirectory = fs.lstatSync(sourcePath).isDirectory();
+
+
+        const axios = shared.axios;
+        shared.setAxios(panelUrl, apiToken);
+
+        core.info(`Uploading ${isDirectory ? "directory" : "file"} ${sourcePath} to ${targetPath}`);
+        let sourceFile = sourcePath
+        let targetFile = targetPath
+        if(isDirectory){
+            //zip
+            const zipPath = `${sourcePath}.zip`;
+            await shared.zip(sourcePath, zipPath);
+            //check if exists
+            if (!fs.existsSync(zipPath)) {
+                throw new Error(`Zip file ${zipPath} does not exist`);
+            }
+            sourceFile = zipPath;
+            targetFile = `${targetPath}.zip`;
+        }
+
+        const buffer = fs.readFileSync(sourceFile);
         const uploadFileResponse = await axios.post(`/api/client/servers/${serverId}/files/write`, buffer, {
             params: {
-                file: targetPath,
+                file: targetFile,
             }
         });
         console.log(uploadFileResponse.data);
 
+        if(isDirectory){
+            //unzip
+            const res = await shared.decompress(serverId, targetPath, targetFile);
+            console.log(res);
+        }
         if (doRestart) {
-            if(doForceKill){
+            if (doForceKill) {
                 const lastPowerState = await shared.getResource(serverId).attributes.current_state;
                 if (lastPowerState === "running") {
                     core.info("Server is running, killing it");
@@ -10704,7 +10746,7 @@ async function run() {
                     core.info("Server is offline, starting it");
                     await shared.setPowerState(serverId, "start");
                 }
-            }else {
+            } else {
                 core.info("Restarting server");
                 const restartResponse = await axios.post(`/api/client/servers/${serverId}/power`, {
                     signal: "restart",

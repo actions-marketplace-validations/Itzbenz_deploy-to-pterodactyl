@@ -1,5 +1,5 @@
 const Axios = require('axios');
-
+const {spawn} = require('child_process');
 const axios = Axios.create({
 
     headers: {
@@ -10,6 +10,30 @@ const axios = Axios.create({
 function setAxios(baseURL, apiToken) {
     axios.defaults.baseURL = baseURL;
     axios.defaults.headers.common['Authorization'] = `Bearer ${apiToken}`;
+}
+
+//wrapper
+async function exec(command, args, options) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, options);
+
+        child.stdout.on('data', (data) => {
+            process.stdout.write(data);
+        });
+        child.stderr.on('data', (data) => {
+            process.stderr.write(data);
+        });
+        child.on('close', (code) => {
+            if (code !== 0) {
+                reject(new Error(`Command ${command} ${args.join(' ')} exited with code ${code}`));
+            }
+            resolve();
+        });
+    });
+}
+
+async function zip(srcDir, targetFile){
+    await exec('zip', ['-r', targetFile, '.'], {cwd: srcDir});
 }
 
 async function setPowerState(serverId, signal) {
@@ -57,6 +81,16 @@ async function restartServer(serverId, force=false) {
     }
 }
 
+
+async function decompress(serverId, root, file) {
+    return (await axios.post(`/api/client/servers/${serverId}/files/decompress`, {
+        root: root,
+        file: file,
+    })).data;
+}
+
+
+
 module.exports = {
     axios,
     setAxios,
@@ -65,4 +99,7 @@ module.exports = {
     getResource,
     restartServer,
     waitUntilPowerState,
+    exec,
+    zip,
+    decompress
 }
