@@ -1,6 +1,6 @@
 # Deploy to Pterodactyl 
 
-Build from GitHub push and deploy to Pterodactyl server
+Build from GitHub, push and deploy to Pterodactyl server
 
 
 ## Usage
