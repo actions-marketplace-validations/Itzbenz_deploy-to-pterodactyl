@@ -1,7 +1,7 @@
 # Deploy to Pterodactyl 
 
 Build from GitHub push and deploy to Pterodactyl server
-![img.png](img.png)
+
 
 ## Usage
 
